@@ -59,9 +59,9 @@ Based on a previously created prototype of the service in `main.go` and `main_te
 > standards expected from a submission.
 
 **Graceful Shutdown:**
-- Implement a graceful shutdown mechanism, allowing active requests to complete before shutting
+Implement a graceful shutdown mechanism, allowing active requests to complete before shutting
   down. This is to support running the service in a cloud environment where it will have a short
-amount of time to complete in-flight requests before the server is terminated.
+amount of time to complete in-flight requests before the server is terminated:
 - The server should stop accepting new connections, but can continue accepting requests.
 - The allowed grace period for active requests to complete should be configurable, for example 3 seconds.
 - Requests that have been accepted, but not completed after that grace period - should be rejected with: `RESPONSE|REJECTED|Cancelled`
@@ -70,8 +70,8 @@ amount of time to complete in-flight requests before the server is terminated.
 ## Evaluation
 
 We understand that in a context of a take home exercise there is a desire to demonstrate full scope
-of your design knowledge, however we will be evaluating if the design and abstractions are at an appropriate level
-for the requirements.
+of your knowledge, however we will be evaluating if the design and abstractions are at an appropriate level
+for the requirements, context of a take home test, and the limited time investment expected.
 
 Typical completion time for an accepted solution is about a day.
 
@@ -146,13 +146,8 @@ However, we'll be happy to answer questions related to the scope or submission p
 
 ## A note on AI tools
 
-Currently AI tools, like OpenAI's ChatGPT or GitHub Copilot, are not allowed within Form3.
-
 We don't limit or discourage their usage for this submission, however we recommend you use them responsibly and
 effectively.
-
-While we're navigating the security and privacy implications of AI adoption at Form3, keep in mind 
-that as a Form3 Senior Engineer, you may not have access to those tools.
 
 ## Submission
 
