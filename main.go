@@ -1,77 +1,54 @@
 package main
 
 import (
-	"bufio"
+	"context"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 )
 
-func Start() error {
-	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", 8080))
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection:", err)
-			continue
-		}
-
-		go handleConnection(conn)
-	}
-}
-
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
-
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		request := scanner.Text()
-		response := handleRequest(request)
-		fmt.Fprintf(conn, "%s\n", response)
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Println("Error reading from connection:", err)
-	}
-}
-
-func handleRequest(request string) string {
-	parts := strings.Split(request, "|")
-	if len(parts) != 2 || parts[0] != "PAYMENT" {
-		return "RESPONSE|REJECTED|Invalid request"
-	}
-
-	amount, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return "RESPONSE|REJECTED|Invalid amount"
-	}
-
-	if amount > 100 {
-		processingTime := amount
-		if amount > 10000 {
-			processingTime = 10000
-		}
-		time.Sleep(time.Duration(processingTime) * time.Millisecond)
-	}
-
-	return "RESPONSE|ACCEPTED|Transaction processed"
-}
-
 func main() {
+	// Configurable grace period (3 seconds default)
+	gracePeriod := 3 * time.Second
+
+	// Create server with grace period
+	server := NewServer(gracePeriod)
+
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Channel to listen for interrupt signals
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
-	go Start()
+	// Start server in a goroutine
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- server.Start(ctx)
+	}()
 
-	<-shutdown
+	// Wait for shutdown signal or server error
+	select {
+	case err := <-serverDone:
+		if err != nil {
+			fmt.Printf("Server error: %v\n", err)
+		}
+	case sig := <-shutdown:
+		fmt.Printf("Received signal: %v\n", sig)
+		fmt.Printf("Initiating graceful shutdown with %v grace period...\n", gracePeriod)
+
+		// Cancel context to trigger graceful shutdown
+		cancel()
+
+		// Wait for server to finish graceful shutdown
+		err := <-serverDone
+		if err != nil {
+			fmt.Printf("Server shutdown error: %v\n", err)
+		} else {
+			fmt.Println("Server shut down gracefully")
+		}
+	}
 }
