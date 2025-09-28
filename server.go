@@ -134,73 +134,60 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	for scanner.Scan() {
 		request := scanner.Text()
 
-		// Check if shutdown was initiated while we were waiting for requests
-		select {
-		case <-ctx.Done():
-			if !shutdownStarted {
+		// Check if shutdown was initiated (blocking check to catch already cancelled context)
+		if !shutdownStarted {
+			select {
+			case <-ctx.Done():
 				shutdownStarted = true
 				shutdownTime = time.Now()
+			default:
 			}
-		default:
 		}
 
-		// If shutdown started, check if grace period has expired
+		// If shutdown started and grace period has expired, reject new requests
 		if shutdownStarted && time.Since(shutdownTime) > s.gracePeriod {
 			fmt.Fprintf(conn, "RESPONSE|REJECTED|Cancelled\n")
 			return
 		}
 
-		// Process the request
+		// If shutdown just started, reject new requests (but let in-flight ones complete)
+		if shutdownStarted {
+			fmt.Fprintf(conn, "RESPONSE|REJECTED|Cancelled\n")
+			return
+		}
+
+		// Process the request with a cancellable context
 		requestDone := make(chan string, 1)
+		requestCtx, cancelRequest := context.WithCancel(context.Background())
 
 		go func(req string) {
-			// Create a background context for request processing
-			// Don't use the main ctx as it gets cancelled immediately on shutdown
-			requestCtx := context.Background()
 			response := s.handleRequest(requestCtx, req)
 			requestDone <- response
 		}(request)
 
-		// Wait for request to complete, but respect grace period if shutdown has started
-		var response string
-		if shutdownStarted {
-			// During shutdown, enforce grace period
-			remainingGrace := s.gracePeriod - time.Since(shutdownTime)
-			if remainingGrace <= 0 {
-				response = "RESPONSE|REJECTED|Cancelled"
-			} else {
-				select {
-				case response = <-requestDone:
-					// Request completed within grace period
-				case <-time.After(remainingGrace):
-					response = "RESPONSE|REJECTED|Cancelled"
-				}
-			}
-		} else {
-			// Normal operation
+		// Wait for request to complete or shutdown to be initiated
+		select {
+		case response := <-requestDone:
+			// Request completed normally
+			cancelRequest()
+			fmt.Fprintf(conn, "%s\n", response)
+		case <-ctx.Done():
+			// Shutdown initiated during request processing
+			shutdownStarted = true
+			shutdownTime = time.Now()
+
+			// Allow current request to complete within grace period
 			select {
-			case response = <-requestDone:
-				// Request completed normally
-			case <-ctx.Done():
-				// Shutdown initiated during request processing
-				shutdownStarted = true
-				shutdownTime = time.Now()
-
-				// Allow current request to complete within grace period
-				select {
-				case response = <-requestDone:
-					// Request completed within grace period
-				case <-time.After(s.gracePeriod):
-					response = "RESPONSE|REJECTED|Cancelled"
-				}
+			case response := <-requestDone:
+				// Request completed within grace period
+				cancelRequest()
+				fmt.Fprintf(conn, "%s\n", response)
+			case <-time.After(s.gracePeriod):
+				// Grace period expired, cancel the request and send cancellation response
+				cancelRequest()
+				fmt.Fprintf(conn, "RESPONSE|REJECTED|Cancelled\n")
+				return
 			}
-		}
-
-		fmt.Fprintf(conn, "%s\n", response)
-
-		// If we sent a cancellation response, close connection
-		if response == "RESPONSE|REJECTED|Cancelled" {
-			return
 		}
 	}
 
