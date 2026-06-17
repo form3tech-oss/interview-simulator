@@ -67,7 +67,7 @@ func TestSchemeSimulator(t *testing.T) {
 			require.NoError(t, err, "Failed to connect to server")
 			defer conn.Close()
 
-			_, err = fmt.Fprintf(conn, tt.input+"\n")
+			_, err = fmt.Fprintf(conn, "%s\n", tt.input)
 			require.NoError(t, err, "Failed to send request")
 
 			start := time.Now()
